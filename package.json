@@ -1,0 +1,22 @@
+{
+  "name": "branch-diff-highlighter",
+  "publisher": "local",
+  "displayName": "Branch Diff Highlighter",
+  "description": "Highlights lines changed relative to base branch (master) in the editor gutter",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.75.0" },
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Branch Diff Highlighter",
+      "properties": {
+        "branchDiffHighlighter.baseBranch": {
+          "type": "string",
+          "default": "master",
+          "description": "Base branch to diff against"
+        }
+      }
+    }
+  }
+}
