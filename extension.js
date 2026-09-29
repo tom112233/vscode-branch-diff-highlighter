@@ -215,8 +215,16 @@ function updateDecorations(editor) {
             }
             const parsed = parseDiff(stdout);
             fileData.set(filePath, parsed);
-            editor.setDecorations(addedDecoration, parsed.added.map(n => new vscode.Range(n - 1, 0, n - 1, 0)));
-            editor.setDecorations(modifiedDecoration, parsed.modified.map(n => new vscode.Range(n - 1, 0, n - 1, 0)));
+            const tip = new vscode.MarkdownString('$(arrow-right) Click to view diff');
+            tip.isTrusted = true;
+            editor.setDecorations(addedDecoration, parsed.added.map(n => ({
+                range: new vscode.Range(n - 1, 0, n - 1, 0),
+                hoverMessage: tip,
+            })));
+            editor.setDecorations(modifiedDecoration, parsed.modified.map(n => ({
+                range: new vscode.Range(n - 1, 0, n - 1, 0),
+                hoverMessage: tip,
+            })));
             statusBarItem.text = `$(diff) +${parsed.addedCount} -${parsed.deletedCount}`;
             statusBarItem.show();
         }
