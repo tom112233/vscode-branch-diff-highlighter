@@ -4,16 +4,28 @@
 
 ## Features
 
+### Gutter color bars
 When you open a file, the extension compares it against your configured base branch using `git diff` and marks every changed line in the gutter:
 
 - **Green bar** — line was added in this branch
 - **Blue bar** — line was modified in this branch (replaces existing content)
 
-Changes are also reflected in the **Overview Ruler** (the minimap scrollbar on the right) so you can spot modified regions at a glance without scrolling.
+Changes are also reflected in the **Overview Ruler** (the minimap scrollbar on the right).
 
-The decoration refreshes automatically when you:
-- Switch to a different file
-- Save the current file
+### Hunk diff popup
+Hover over any changed line to see the full diff hunk in a floating panel. The popup shows the before/after context for the entire contiguous block.
+
+### Revert block
+Inside the hover panel, click **↩ Revert block** to undo just that hunk using `git apply --reverse`. Only the hovered block is reverted — other changes in the file are untouched.
+
+### Block history
+Click **⏱ Show history** in the hover panel to run `git log -L` for the hunk's line range. Output appears in the **Branch Diff: Block History** output channel.
+
+### Inline blame
+The last author and relative time (e.g. `coconutMilk · 2h ago`) are shown at the end of the cursor line in gray italic. The annotation follows your cursor and only appears on the active line, similar to GitLens' current-line blame.
+
+### Status bar stats
+The bottom status bar shows `+N -N` — the total added and deleted line count for the current file relative to the base branch.
 
 ## Requirements
 
@@ -56,21 +68,17 @@ The decoration refreshes automatically when you:
 
 ## Usage
 
-Open any file tracked by Git. If the file has lines that differ from the base branch, colored bars appear immediately in the left gutter. No command needed.
-
-To change the base branch mid-session, update `branchDiffHighlighter.baseBranch` in your workspace settings and switch to another file (or save the current one) to trigger a refresh.
+Open any file tracked by Git. If the file has lines that differ from the base branch, colored bars appear immediately in the left gutter. Hover over a bar to see the diff popup with revert and history actions.
 
 ## Known Issues
 
-- Deleted lines are not marked (only the surrounding context shows modification bars). This matches how `git diff` hunk headers work — deleted-only blocks leave no `+` lines to annotate.
+- Deleted-only blocks (no added lines) are not annotated in the gutter.
 - Binary files are skipped silently.
 - Very large diffs (>10 MB) may be slow on first open.
 
 ## Release Notes
 
-### 0.0.1
-
-Initial release. Adds/modified line highlighting in the editor gutter relative to a configurable base branch.
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 
