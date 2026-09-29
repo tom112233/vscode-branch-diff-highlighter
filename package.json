@@ -2,24 +2,22 @@
   "name": "branch-diff-highlighter",
   "publisher": "local",
   "displayName": "Branch Diff Highlighter",
-  "description": "Highlights lines changed relative to base branch in the editor gutter — like GoLand's branch diff coloring, for VSCode.",
+  "description": "Highlights lines changed relative to base branch (master) in the editor gutter",
   "version": "0.0.1",
-  "license": "MIT",
-  "author": "tom112233",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/tom112233/vscode-branch-diff-highlighter"
-  },
-  "bugs": {
-    "url": "https://github.com/tom112233/vscode-branch-diff-highlighter/issues"
-  },
-  "homepage": "https://github.com/tom112233/vscode-branch-diff-highlighter#readme",
-  "keywords": ["git", "diff", "branch", "gutter", "highlight", "decoration"],
-  "categories": ["SCM Providers", "Visualization"],
   "engines": { "vscode": "^1.75.0" },
   "activationEvents": ["onStartupFinished"],
   "main": "./extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "branchDiffHighlighter.revertHunk",
+        "title": "Branch Diff: Revert this block"
+      },
+      {
+        "command": "branchDiffHighlighter.showBlockHistory",
+        "title": "Branch Diff: Show history for this block"
+      }
+    ],
     "configuration": {
       "title": "Branch Diff Highlighter",
       "properties": {
