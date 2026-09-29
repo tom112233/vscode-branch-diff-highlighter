@@ -30,7 +30,8 @@ class HunkCodeLensProvider {
         const baseBranch = vscode.workspace.getConfiguration('branchDiffHighlighter').get('baseBranch', 'master');
         const lenses = [];
         for (const hunk of data.hunks) {
-            const range = new vscode.Range(hunk.startLine - 1, 0, hunk.startLine - 1, 0);
+            const line = hunk.codeLensLine - 1;
+            const range = new vscode.Range(line, 0, line, 0);
             const args = [{ cwd, relPath, rawHunk: hunk.rawHunk, startLine: hunk.startLine, endLine: hunk.endLine, baseBranch }];
             lenses.push(new vscode.CodeLens(range, { title: '$(diff) View diff', command: 'branchDiffHighlighter.openDiff', arguments: args }));
             lenses.push(new vscode.CodeLens(range, { title: '$(discard) Revert', command: 'branchDiffHighlighter.revertHunk', arguments: args }));
@@ -236,15 +237,19 @@ function parseDiff(diffOutput) {
         let deletionInBlock = false;
         let hunkStartLine = newStart;
         let hunkEndLine = newStart;
+        let firstChangeLine = null;
         for (const l of hunkLines.slice(1)) {
-            if (l.startsWith('-')) { deletionInBlock = true; deletedCount++; }
-            else if (l.startsWith('+')) {
+            if (l.startsWith('-')) {
+                if (firstChangeLine === null) firstChangeLine = lineNum + 1;
+                deletionInBlock = true; deletedCount++;
+            } else if (l.startsWith('+')) {
                 lineNum++; addedCount++;
+                if (firstChangeLine === null) firstChangeLine = lineNum;
                 if (deletionInBlock) { modified.push(lineNum); } else { added.push(lineNum); }
                 hunkEndLine = lineNum;
             } else { deletionInBlock = false; if (!l.startsWith('\\')) lineNum++; }
         }
-        hunks.push({ startLine: hunkStartLine, endLine: Math.max(hunkEndLine, hunkStartLine), rawHunk: hunkLines.join('\n') });
+        hunks.push({ startLine: hunkStartLine, endLine: Math.max(hunkEndLine, hunkStartLine), codeLensLine: firstChangeLine || hunkStartLine, rawHunk: hunkLines.join('\n') });
     }
     return { hunks, added, modified, addedCount, deletedCount };
 }
