@@ -7,12 +7,12 @@ let modifiedDecoration;
 let blameDecoration;
 let statusBarItem;
 let historyOutputChannel;
-let diffPanel = null;
 let currentHunkArgs = null;
 
 const pendingUpdates = new Map();
 const fileData = new Map();
 const blameCache = new Map();
+const baseContentMap = new Map();
 
 function activate(context) {
     addedDecoration = vscode.window.createTextEditorDecorationType({
@@ -46,6 +46,14 @@ function activate(context) {
     historyOutputChannel = vscode.window.createOutputChannel('Branch Diff: Block History');
     context.subscriptions.push(historyOutputChannel);
 
+    // Virtual document provider — serves base-branch content for vscode.diff
+    const provider = vscode.workspace.registerTextDocumentContentProvider('branch-diff', {
+        provideTextDocumentContent(uri) {
+            return baseContentMap.get(uri.toString()) || '';
+        }
+    });
+    context.subscriptions.push(provider);
+
     context.subscriptions.push(
         vscode.commands.registerCommand('branchDiffHighlighter.revertHunk', revertHunk)
     );
@@ -54,10 +62,7 @@ function activate(context) {
     );
 
     vscode.window.onDidChangeActiveTextEditor(editor => {
-        if (editor) {
-            scheduleUpdate(editor);
-            updateBlame(editor);
-        }
+        if (editor) { scheduleUpdate(editor); updateBlame(editor); }
     }, null, context.subscriptions);
 
     vscode.workspace.onDidSaveTextDocument(doc => {
@@ -71,7 +76,6 @@ function activate(context) {
 
     vscode.window.onDidChangeTextEditorSelection(e => {
         updateBlameDecoration(e.textEditor);
-        // only react to mouse clicks, not keyboard navigation
         if (e.kind === vscode.TextEditorSelectionChangeKind.Mouse) {
             handleMouseClick(e.textEditor);
         }
@@ -87,180 +91,50 @@ function handleMouseClick(editor) {
     const data = fileData.get(editor.document.uri.fsPath);
     const lineNum = editor.selection.active.line + 1;
     const hunk = data && data.hunks.find(h => lineNum >= h.startLine && lineNum <= h.endLine);
-
-    if (!hunk) {
-        if (diffPanel) { diffPanel.dispose(); diffPanel = null; }
-        return;
-    }
+    if (!hunk) return;
 
     const wf = vscode.workspace.getWorkspaceFolder(editor.document.uri);
     if (!wf) return;
     const cwd = wf.uri.fsPath;
     const relPath = path.relative(cwd, editor.document.uri.fsPath);
     const baseBranch = vscode.workspace.getConfiguration('branchDiffHighlighter').get('baseBranch', 'master');
+    const filename = path.basename(relPath);
 
     currentHunkArgs = { cwd, relPath, rawHunk: hunk.rawHunk, startLine: hunk.startLine, endLine: hunk.endLine };
 
-    const filename = path.basename(relPath);
-    const html = buildDiffHtml(hunk, filename, baseBranch, relPath);
+    // Fetch base-branch content and open native diff
+    exec(
+        `git show "${baseBranch}:${relPath}"`,
+        { cwd, maxBuffer: 1024 * 1024 * 10 },
+        (err, stdout) => {
+            const baseUri = vscode.Uri.parse(`branch-diff:///${relPath.replace(/\\/g, '/')}`);
+            baseContentMap.set(baseUri.toString(), stdout || '');
 
-    if (!diffPanel) {
-        diffPanel = vscode.window.createWebviewPanel(
-            'branchDiffHighlighter.diff',
-            `Diff: ${filename}`,
-            { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-            { enableScripts: true, retainContextWhenHidden: true }
-        );
-        diffPanel.webview.onDidReceiveMessage(msg => {
-            if (msg.command === 'revert') revertHunk(currentHunkArgs);
-            else if (msg.command === 'history') showBlockHistory(currentHunkArgs);
-        });
-        diffPanel.onDidDispose(() => { diffPanel = null; });
-    }
+            const selection = new vscode.Range(
+                Math.max(0, hunk.startLine - 1), 0,
+                Math.max(0, hunk.endLine - 1), 0
+            );
 
-    diffPanel.title = `Diff: ${filename}`;
-    diffPanel.webview.html = html;
-    diffPanel.reveal(vscode.ViewColumn.Beside, true);
-}
-
-function buildDiffHtml(hunk, filename, baseBranch, relPath) {
-    const lines = hunk.rawHunk.split('\n');
-    const hunkHeader = escapeHtml(lines[0] || '');
-
-    const diffRows = lines.slice(1).map(l => {
-        if (l === '') return '';
-        const ch = l[0];
-        if (ch === '+') {
-            return `<div class="line added"><span class="sign">+</span><span class="content">${escapeHtml(l.slice(1))}</span></div>`;
-        } else if (ch === '-') {
-            return `<div class="line removed"><span class="sign">-</span><span class="content">${escapeHtml(l.slice(1))}</span></div>`;
-        } else if (ch === '\\') {
-            return '';
+            vscode.commands.executeCommand(
+                'vscode.diff',
+                baseUri,
+                editor.document.uri,
+                `${baseBranch} ↔ HEAD — ${filename}`,
+                { selection, preserveFocus: false }
+            ).then(() => {
+                // Action buttons in a non-blocking notification
+                vscode.window.showInformationMessage(
+                    `Block ${hunk.startLine}–${hunk.endLine} in ${filename}`,
+                    '↩ Revert block',
+                    '⏱ Show history'
+                ).then(choice => {
+                    if (!choice) return;
+                    if (choice.startsWith('↩')) revertHunk(currentHunkArgs);
+                    else showBlockHistory(currentHunkArgs);
+                });
+            });
         }
-        return `<div class="line context"><span class="sign"> </span><span class="content">${escapeHtml(l.slice(1))}</span></div>`;
-    }).join('');
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-<style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 0;
-    font-family: var(--vscode-editor-font-family, 'Menlo', 'Monaco', monospace);
-    font-size: var(--vscode-editor-font-size, 13px);
-    line-height: 1.5;
-    background: var(--vscode-editor-background);
-    color: var(--vscode-editor-foreground);
-    overflow-x: hidden;
-  }
-  .toolbar {
-    position: sticky; top: 0; z-index: 100;
-    background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.2));
-    padding: 7px 12px;
-    display: flex; align-items: center; gap: 8px;
-  }
-  .toolbar-meta {
-    flex: 1;
-    display: flex; flex-direction: column; gap: 1px;
-    min-width: 0;
-  }
-  .toolbar-title {
-    font-weight: 600;
-    font-size: 0.82em;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    color: var(--vscode-foreground);
-  }
-  .toolbar-subtitle {
-    font-size: 0.75em;
-    opacity: 0.55;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    font-style: italic;
-  }
-  .btn {
-    flex-shrink: 0;
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    border: none; padding: 4px 11px;
-    border-radius: 3px; cursor: pointer;
-    font-size: 0.82em; font-family: inherit;
-    white-space: nowrap;
-  }
-  .btn:hover { background: var(--vscode-button-hoverBackground); }
-  .btn-secondary {
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-  }
-  .btn-secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-  .diff { overflow-x: auto; padding: 4px 0; }
-  .branch-label {
-    display: flex; gap: 0;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.2));
-    margin-bottom: 2px;
-  }
-  .branch-tag {
-    flex: 1; text-align: center;
-    font-size: 0.75em; font-weight: 600; padding: 3px 0;
-    opacity: 0.55;
-    letter-spacing: 0.05em;
-  }
-  .branch-tag.before { color: #e5534b; border-right: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.2)); }
-  .branch-tag.after { color: #4EC9B0; }
-  .line {
-    display: flex; padding: 0;
-    min-width: max-content;
-  }
-  .line.added { background: rgba(78, 201, 176, 0.13); }
-  .line.removed { background: rgba(229, 83, 75, 0.15); }
-  .line.context { opacity: 0.75; }
-  .sign {
-    width: 22px; text-align: center;
-    flex-shrink: 0; user-select: none;
-    font-weight: 700; font-size: 0.9em;
-    padding: 1px 0;
-  }
-  .line.added .sign { color: #4EC9B0; }
-  .line.removed .sign { color: #e5534b; }
-  .content {
-    flex: 1; padding: 1px 12px 1px 4px;
-    white-space: pre;
-  }
-</style>
-</head>
-<body>
-<div class="toolbar">
-  <div class="toolbar-meta">
-    <div class="toolbar-title">${escapeHtml(filename)}</div>
-    <div class="toolbar-subtitle">${escapeHtml(baseBranch)}...HEAD &nbsp;·&nbsp; ${escapeHtml(hunkHeader)}</div>
-  </div>
-  <button class="btn btn-secondary" onclick="history()">⏱ History</button>
-  <button class="btn" onclick="revert()">↩ Revert</button>
-</div>
-<div class="diff">
-  <div class="branch-label">
-    <span class="branch-tag before">− ${escapeHtml(baseBranch)}</span>
-    <span class="branch-tag after">+ HEAD</span>
-  </div>
-  ${diffRows}
-</div>
-<script>
-  const vscode = acquireVsCodeApi();
-  function revert() { vscode.postMessage({ command: 'revert' }); }
-  function history() { vscode.postMessage({ command: 'history' }); }
-</script>
-</body>
-</html>`;
-}
-
-function escapeHtml(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+    );
 }
 
 async function revertHunk(args) {
@@ -269,17 +143,13 @@ async function revertHunk(args) {
     const { cwd, relPath, rawHunk } = args;
     const patch = `diff --git a/${relPath} b/${relPath}\n--- a/${relPath}\n+++ b/${relPath}\n${rawHunk}\n`;
     const child = exec('git apply --reverse --recount', { cwd }, (err, _stdout, stderr) => {
-        if (err) {
-            vscode.window.showErrorMessage('Revert failed: ' + (stderr || err.message));
-            return;
-        }
+        if (err) { vscode.window.showErrorMessage('Revert failed: ' + (stderr || err.message)); return; }
         const editor = vscode.window.activeTextEditor;
         if (editor) {
             blameCache.delete(editor.document.uri.fsPath);
             scheduleUpdate(editor);
             updateBlame(editor);
         }
-        if (diffPanel) { diffPanel.dispose(); diffPanel = null; }
         vscode.window.showInformationMessage('Block reverted.');
     });
     child.stdin.end(patch);
@@ -315,7 +185,6 @@ function updateDecorations(editor) {
     const filePath = editor.document.uri.fsPath;
     const wf = vscode.workspace.getWorkspaceFolder(editor.document.uri);
     if (!wf) return;
-
     const cwd = wf.uri.fsPath;
     const baseBranch = vscode.workspace.getConfiguration('branchDiffHighlighter').get('baseBranch', 'master');
     const relPath = path.relative(cwd, filePath);
@@ -376,11 +245,7 @@ function parseDiff(diffOutput) {
             } else if (l.startsWith('+')) {
                 lineNum++;
                 addedCount++;
-                if (deletionInBlock) {
-                    modified.push(lineNum);
-                } else {
-                    added.push(lineNum);
-                }
+                if (deletionInBlock) { modified.push(lineNum); } else { added.push(lineNum); }
                 hunkEndLine = lineNum;
             } else {
                 deletionInBlock = false;
@@ -388,11 +253,7 @@ function parseDiff(diffOutput) {
             }
         }
 
-        hunks.push({
-            startLine: hunkStartLine,
-            endLine: Math.max(hunkEndLine, hunkStartLine),
-            rawHunk: hunkLines.join('\n'),
-        });
+        hunks.push({ startLine: hunkStartLine, endLine: Math.max(hunkEndLine, hunkStartLine), rawHunk: hunkLines.join('\n') });
     }
 
     return { hunks, added, modified, addedCount, deletedCount };
