@@ -60,6 +60,16 @@ function activate(context) {
     context.subscriptions.push(
         vscode.commands.registerCommand('branchDiffHighlighter.showBlockHistory', showBlockHistory)
     );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('branchDiffHighlighter.toggleDiffLayout', () => {
+            const cfg = vscode.workspace.getConfiguration('diffEditor');
+            const current = cfg.get('renderSideBySide', true);
+            cfg.update('renderSideBySide', !current, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(
+                `Diff layout: ${!current ? 'side-by-side' : 'inline'}`
+            );
+        })
+    );
 
     vscode.window.onDidChangeActiveTextEditor(editor => {
         if (editor) { scheduleUpdate(editor); updateBlame(editor); }
@@ -123,14 +133,17 @@ function handleMouseClick(editor) {
                 { selection, preserveFocus: false }
             ).then(() => {
                 // Action buttons in a non-blocking notification
+                const isSideBySide = vscode.workspace.getConfiguration('diffEditor').get('renderSideBySide', true);
                 vscode.window.showInformationMessage(
                     `Block ${hunk.startLine}–${hunk.endLine} in ${filename}`,
                     '↩ Revert block',
-                    '⏱ Show history'
+                    '⏱ Show history',
+                    isSideBySide ? '⇔ Switch to inline' : '⇔ Switch to split'
                 ).then(choice => {
                     if (!choice) return;
                     if (choice.startsWith('↩')) revertHunk(currentHunkArgs);
-                    else showBlockHistory(currentHunkArgs);
+                    else if (choice.startsWith('⏱')) showBlockHistory(currentHunkArgs);
+                    else vscode.commands.executeCommand('branchDiffHighlighter.toggleDiffLayout');
                 });
             });
         }
