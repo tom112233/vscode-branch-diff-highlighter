@@ -110,7 +110,7 @@ function activate(context) {
     );
 
     vscode.window.onDidChangeActiveTextEditor(editor => {
-        if (editor) { scheduleUpdate(editor); updateBlame(editor); }
+        if (editor) { scheduleUpdate(editor); if (isBlameEnabled()) updateBlame(editor); }
     }, null, context.subscriptions);
 
     vscode.workspace.onDidSaveTextDocument(doc => {
@@ -118,18 +118,23 @@ function activate(context) {
         if (editor && editor.document === doc) {
             blameCache.delete(doc.uri.fsPath);
             scheduleUpdate(editor);
-            updateBlame(editor);
+            if (isBlameEnabled()) updateBlame(editor);
         }
     }, null, context.subscriptions);
 
     vscode.window.onDidChangeTextEditorSelection(e => {
-        updateBlameDecoration(e.textEditor);
+        if (isBlameEnabled()) updateBlameDecoration(e.textEditor);
+        else e.textEditor.setDecorations(blameDecoration, []);
     }, null, context.subscriptions);
 
     if (vscode.window.activeTextEditor) {
         scheduleUpdate(vscode.window.activeTextEditor);
-        updateBlame(vscode.window.activeTextEditor);
+        if (isBlameEnabled()) updateBlame(vscode.window.activeTextEditor);
     }
+}
+
+function isBlameEnabled() {
+    return vscode.workspace.getConfiguration('branchDiffHighlighter').get('blame.enabled', true);
 }
 
 async function revertHunk(args) {
@@ -146,7 +151,7 @@ async function revertHunk(args) {
         if (editor) {
             blameCache.delete(editor.document.uri.fsPath);
             scheduleUpdate(editor);
-            updateBlame(editor);
+            if (isBlameEnabled()) updateBlame(editor);
         }
         vscode.window.showInformationMessage('Block reverted.');
     });

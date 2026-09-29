@@ -25,6 +25,11 @@
           "type": "string",
           "default": "master",
           "description": "Base branch to diff against (e.g. master, main, develop)"
+        },
+        "branchDiffHighlighter.blame.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline blame (author and relative time) on the cursor line. Disable if using GitLens or another blame extension."
         }
       }
     }
